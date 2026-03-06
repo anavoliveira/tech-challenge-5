@@ -151,6 +151,24 @@ def health_check():
     return {"status": "ok"}
 
 
+# ---------------------------------------------------------------------------
+# SageMaker-required routes
+# GET /ping        → health check (SageMaker expects 200)
+# POST /invocations → predictions (SageMaker sends requests here)
+# ---------------------------------------------------------------------------
+
+@router.get("/ping", tags=["SageMaker"])
+def sagemaker_ping():
+    """SageMaker health check — must return 200."""
+    return {"status": "ok"}
+
+
+@router.post("/invocations", response_model=PredictionResponse, tags=["SageMaker"])
+def sagemaker_invocations(student: StudentFeatures):
+    """SageMaker inference endpoint — mirrors /predict."""
+    return predict(student)
+
+
 @router.get("/model-info", tags=["Model"])
 def model_info():
     """Return metadata of the currently loaded model."""
