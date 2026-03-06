@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install pandas openpyxl numpy scikit-learn fastapi uvicorn joblib pytest pytest-cov xgboost)"
+    ]
+  }
+}
