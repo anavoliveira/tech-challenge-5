@@ -1,108 +1,25 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Passos Magicos — Infraestrutura base:
-  ECR Repository, OIDC Provider para GitHub Actions,
-  IAM Role para GitHub Actions e IAM Role para SageMaker.
+  Passos Magicos — Infraestrutura:
+  IAM Role para SageMaker, SageMaker Model, EndpointConfig e Endpoint.
 
-# ── Parametros ────────────────────────────────────────────────────────────────
 Parameters:
-  GitHubOrg:
+  ImageTag:
     Type: String
-    Description: "Usuario ou organizacao no GitHub (ex: minha-org)"
+    Description: "Tag da imagem Docker (github.sha)"
 
-  GitHubRepo:
+  Environment:
     Type: String
-    Description: "Nome do repositorio no GitHub (ex: tech-challenge-5)"
+    Default: prod
+    AllowedValues:
+      - dev
+      - prod
+    Description: "Ambiente de deploy"
 
-  ECRRepositoryName:
-    Type: String
-    Default: passos-magicos-api
-    Description: "Nome do repositorio ECR"
-
-  SageMakerEndpointName:
-    Type: String
-    Default: passos-magicos-endpoint
-    Description: "Nome do endpoint SageMaker (informativo, nao criado aqui)"
-
-# ── Recursos ──────────────────────────────────────────────────────────────────
 Resources:
 
   # --------------------------------------------------------------------------
-  # 1. OIDC Provider — autentica GitHub Actions sem credenciais estaticas
-  # --------------------------------------------------------------------------
-  GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList:
-        - sts.amazonaws.com
-      ThumbprintList:
-        - 6938fd4d98bab03faadb97b34396831e3780aea1
-
-  # --------------------------------------------------------------------------
-  # 2. IAM Role — assumida pelo GitHub Actions via OIDC
-  # --------------------------------------------------------------------------
-  GitHubActionsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: GitHubActionsRole
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !GetAtt GitHubOIDCProvider.Arn
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringEquals:
-                "token.actions.githubusercontent.com:aud": sts.amazonaws.com
-              StringLike:
-                "token.actions.githubusercontent.com:sub":
-                  !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
-      Policies:
-        - PolicyName: GitHubActionsPermissions
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Sid: ECRAuth
-                Effect: Allow
-                Action: ecr:GetAuthorizationToken
-                Resource: "*"
-
-              - Sid: ECRRepository
-                Effect: Allow
-                Action:
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:BatchGetImage
-                  - ecr:InitiateLayerUpload
-                  - ecr:UploadLayerPart
-                  - ecr:CompleteLayerUpload
-                  - ecr:PutImage
-                  - ecr:DescribeRepositories
-                Resource: !GetAtt ECRRepository.Arn
-
-              - Sid: SageMakerDeploy
-                Effect: Allow
-                Action:
-                  - sagemaker:CreateModel
-                  - sagemaker:CreateEndpointConfig
-                  - sagemaker:CreateEndpoint
-                  - sagemaker:UpdateEndpoint
-                  - sagemaker:DescribeEndpoint
-                  - sagemaker:ListEndpoints
-                Resource: "*"
-
-              - Sid: PassSageMakerRole
-                Effect: Allow
-                Action: iam:PassRole
-                Resource: !GetAtt SageMakerExecutionRole.Arn
-                Condition:
-                  StringEquals:
-                    "iam:PassedToService": sagemaker.amazonaws.com
-
-  # --------------------------------------------------------------------------
-  # 3. IAM Role — assumida pelo SageMaker para executar o container
+  # 1. IAM Role
   # --------------------------------------------------------------------------
   SageMakerExecutionRole:
     Type: AWS::IAM::Role
@@ -131,45 +48,53 @@ Resources:
                 Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*"
 
   # --------------------------------------------------------------------------
-  # 4. ECR Repository
+  # 2. SageMaker Model
   # --------------------------------------------------------------------------
-  ECRRepository:
-    Type: AWS::ECR::Repository
+  SageMakerModel:
+    Type: AWS::SageMaker::Model
     Properties:
-      RepositoryName: !Ref ECRRepositoryName
-      ImageScanningConfiguration:
-        ScanOnPush: true
-      LifecyclePolicy:
-        LifecyclePolicyText: |
-          {
-            "rules": [{
-              "rulePriority": 1,
-              "description": "Manter apenas as 10 imagens mais recentes",
-              "selection": {
-                "tagStatus": "any",
-                "countType": "imageCountMoreThan",
-                "countNumber": 10
-              },
-              "action": {"type": "expire"}
-            }]
-          }
+      ModelName: !Sub "passos-magicos-${Environment}-${ImageTag}"
+      PrimaryContainer:
+        Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}"
+      ExecutionRoleArn: !GetAtt SageMakerExecutionRole.Arn
+
+  # --------------------------------------------------------------------------
+  # 3. SageMaker EndpointConfig
+  # --------------------------------------------------------------------------
+  SageMakerEndpointConfig:
+    Type: AWS::SageMaker::EndpointConfig
+    Properties:
+      EndpointConfigName: !Sub "passos-magicos-${Environment}-${ImageTag}"
+      ProductionVariants:
+        - VariantName: AllTraffic
+          ModelName: !Ref SageMakerModel
+          ServerlessConfig:
+            MemorySizeInMB: 2048
+            MaxConcurrency: 10
+
+  # --------------------------------------------------------------------------
+  # 4. SageMaker Endpoint 
+  # --------------------------------------------------------------------------
+  SageMakerEndpoint:
+    Type: AWS::SageMaker::Endpoint
+    Properties:
+      EndpointName: !Sub "passos-magicos-${Environment}"
+      EndpointConfigName: !GetAtt SageMakerEndpointConfig.EndpointConfigName
 
 # ── Outputs ───────────────────────────────────────────────────────────────────
 Outputs:
-  GitHubActionsRoleArn:
-    Description: "ARN da role do GitHub Actions — adicionar como secret AWS_ROLE_ARN"
-    Value: !GetAtt GitHubActionsRole.Arn
-    Export:
-      Name: !Sub "${AWS::StackName}-GitHubActionsRoleArn"
-
   SageMakerExecutionRoleArn:
-    Description: "ARN da role do SageMaker — adicionar como secret SAGEMAKER_ROLE_ARN"
+    Description: "ARN da role do SageMaker"
     Value: !GetAtt SageMakerExecutionRole.Arn
     Export:
       Name: !Sub "${AWS::StackName}-SageMakerExecutionRoleArn"
 
-  ECRRepositoryUri:
-    Description: "URI completo do repositorio ECR"
-    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}"
+  SageMakerEndpointName:
+    Description: "Nome do endpoint SageMaker"
+    Value: !GetAtt SageMakerEndpoint.EndpointName
     Export:
-      Name: !Sub "${AWS::StackName}-ECRRepositoryUri"
+      Name: !Sub "${AWS::StackName}-SageMakerEndpointName"
+
+  ECRImageUri:
+    Description: "URI da imagem utilizada neste deploy"
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}"
