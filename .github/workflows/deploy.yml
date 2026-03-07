@@ -1,170 +1,123 @@
-name: Deploy to AWS SageMaker
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+name: "Deploy AWS Prod"
 
 env:
   AWS_REGION: us-east-1
-  CF_STACK_NAME: passos-magicos-infra
-  SAGEMAKER_ENDPOINT: passos-magicos-endpoint
+  STACK_NAME: passos-magicos-infra
+  ECR_REPOSITORY: passos-magicos
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+on: 
+  push:
+    branches: 
+      - main
 
 jobs:
-  # ── 1. Testes ────────────────────────────────────────────────────────────────
-  test:
-    name: Run tests
+  build-image:
+    name: Build Image
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run tests
-        run: pytest tests/ --cov=src --cov-fail-under=80 -q
-
-  # ── 2. Build + Push ECR ──────────────────────────────────────────────────────
-  build-and-push:
-    name: Build and push Docker image
-    runs-on: ubuntu-latest
-    needs: test
-    outputs:
-      image_uri: ${{ steps.build.outputs.image_uri }}
-
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials via OIDC
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # Le o URI do ECR nos Outputs do CloudFormation
-      - name: Get ECR URI from CloudFormation
-        id: cf-outputs
         run: |
-          ECR_URI=$(aws cloudformation describe-stacks \
-            --stack-name "$CF_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "Stacks[0].Outputs[?OutputKey=='ECRRepositoryUri'].OutputValue" \
-            --output text)
-          echo "ecr_uri=$ECR_URI" >> "$GITHUB_OUTPUT"
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+          | docker login --username AWS --password-stdin ${{ secrets.REGISTRY }}
 
-      - name: Build and push image
-        id: build
-        env:
-          ECR_URI: ${{ steps.cf-outputs.outputs.ecr_uri }}
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Create ECR Repository if not exists
         run: |
-          IMAGE_URI="$ECR_URI:$IMAGE_TAG"
+          aws ecr describe-repositories \
+            --repository-names ${{ env.ECR_REPOSITORY }} \
+            --region ${{ env.AWS_REGION }} \
+          || aws ecr create-repository \
+            --repository-name ${{ env.ECR_REPOSITORY }} \
+            --region ${{ env.AWS_REGION }} \
+            --image-scanning-configuration scanOnPush=true \
+            --image-tag-mutability MUTABLE
 
-          docker build -t "$IMAGE_URI" .
-          docker push "$IMAGE_URI"
+      - name: Docker Build
+        run: |
+          docker build \
+            -t ${{ env.ECR_REPOSITORY }}:latest \
+            -t ${{ env.ECR_REPOSITORY }}:$VERSION \
+            -f app/lambda/Dockerfile app/lambda
 
-          docker tag "$IMAGE_URI" "$ECR_URI:latest"
-          docker push "$ECR_URI:latest"
+      - name: Tag Docker Image
+        run: |
+          docker tag ${{ env.ECR_REPOSITORY }}:latest ${{ secrets.REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          docker tag ${{ env.ECR_REPOSITORY }}:$VERSION ${{ secrets.REGISTRY }}/${{ env.ECR_REPOSITORY }}:$VERSION
 
-          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+      - name: Push Docker Image
+        run: |
+          docker push ${{ secrets.REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          docker push ${{ secrets.REGISTRY }}/${{ env.ECR_REPOSITORY }}:$VERSION
 
-  # ── 3. Deploy SageMaker ──────────────────────────────────────────────────────
   deploy:
-    name: Deploy to SageMaker
+    name: Deploy
+    needs:
+      - build-image
     runs-on: ubuntu-latest
-    needs: build-and-push
-    environment: production
-
-    permissions:
-      id-token: write
-      contents: read
-
+    env:
+      VERSION: ${{ github.sha }}
     steps:
-      - name: Configure AWS credentials via OIDC
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Le o ARN da role SageMaker nos Outputs do CloudFormation
-      - name: Get SageMaker role ARN from CloudFormation
-        id: cf-outputs
+      - name: Deploy Cloudformation Stack 
         run: |
-          SM_ROLE=$(aws cloudformation describe-stacks \
-            --stack-name "$CF_STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "Stacks[0].Outputs[?OutputKey=='SageMakerExecutionRoleArn'].OutputValue" \
-            --output text)
-          echo "sagemaker_role=$SM_ROLE" >> "$GITHUB_OUTPUT"
+          aws cloudformation deploy \
+          --template-file infra/cloudformation.yml \
+          --stack-name ${{ env.STACK_NAME }} \
+          --capabilities CAPABILITY_NAMED_IAM \
+          --parameter-overrides ImageTag=$VERSION Environment=prod \
+          --no-fail-on-empty-changeset
 
-      - name: Create SageMaker model
+  release:
+    needs:
+      - deploy
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with: 
+          fetch-depth: 0
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install semantic-release
+        run: npm install semantic-release @semantic-release/github @semantic-release/commit-analyzer @semantic-release/release-notes-generator
+
+      - name: Run semantic-release
+        id: semantic
         env:
-          IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
-          MODEL_NAME: passos-magicos-${{ github.sha }}
-          SM_ROLE: ${{ steps.cf-outputs.outputs.sagemaker_role }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+      
+      - name: Get version from git tag
+        id: get_version
         run: |
-          aws sagemaker create-model \
-            --model-name "$MODEL_NAME" \
-            --primary-container Image="$IMAGE_URI" \
-            --execution-role-arn "$SM_ROLE"
-
-      - name: Create endpoint config (serverless)
-        env:
-          MODEL_NAME: passos-magicos-${{ github.sha }}
-          CONFIG_NAME: passos-magicos-config-${{ github.sha }}
-        run: |
-          aws sagemaker create-endpoint-config \
-            --endpoint-config-name "$CONFIG_NAME" \
-            --production-variants "[{
-              \"VariantName\": \"AllTraffic\",
-              \"ModelName\": \"$MODEL_NAME\",
-              \"ServerlessConfig\": {
-                \"MemorySizeInMB\": 2048,
-                \"MaxConcurrency\": 10
-              }
-            }]"
-
-      - name: Create or update endpoint
-        env:
-          CONFIG_NAME: passos-magicos-config-${{ github.sha }}
-        run: |
-          if aws sagemaker describe-endpoint \
-               --endpoint-name "$SAGEMAKER_ENDPOINT" \
-               --region "$AWS_REGION" 2>/dev/null; then
-            echo "Atualizando endpoint existente..."
-            aws sagemaker update-endpoint \
-              --endpoint-name "$SAGEMAKER_ENDPOINT" \
-              --endpoint-config-name "$CONFIG_NAME"
-          else
-            echo "Criando novo endpoint..."
-            aws sagemaker create-endpoint \
-              --endpoint-name "$SAGEMAKER_ENDPOINT" \
-              --endpoint-config-name "$CONFIG_NAME"
-          fi
-
-      - name: Wait for endpoint to be InService
-        run: |
-          aws sagemaker wait endpoint-in-service \
-            --endpoint-name "$SAGEMAKER_ENDPOINT" \
-            --region "$AWS_REGION"
-          echo "Endpoint InService."
-
-      - name: Print endpoint info
-        run: |
-          aws sagemaker describe-endpoint \
-            --endpoint-name "$SAGEMAKER_ENDPOINT" \
-            --query "{Arn: EndpointArn, Status: EndpointStatus}" \
-            --output table
+          VERSION=$(git describe --tags --abbrev=0)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
