@@ -93,7 +93,7 @@ jobs:
           --template-file infra/cloudformation.yml \
           --stack-name ${{ env.STACK_NAME }} \
           --capabilities CAPABILITY_NAMED_IAM \
-          --parameter-overrides ImageTag=$SHORT_SHA Environment=prod \
+          --parameter-overrides GitHubSha=$SHORT_SHA ImageTag=$VERSION Environment=prod \
           --no-fail-on-empty-changeset      
 
   release:
