@@ -53,7 +53,7 @@ jobs:
           docker build \
             -t ${{ env.ECR_REPOSITORY }}:latest \
             -t ${{ env.ECR_REPOSITORY }}:$VERSION \
-            -f app/lambda/Dockerfile app/lambda
+            -f Dockerfile .
 
       - name: Tag Docker Image
         run: |
