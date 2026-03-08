@@ -119,15 +119,33 @@ def train_model():
     # train best on full train
     best_clf = candidates[best_name]
     final_pipe = Pipeline([
-        ("preprocessor", build_preprocessor()),
-        ("classifier", best_clf),
+        (
+            "preprocessor",
+            build_preprocessor(
+                numeric_features=numeric_feature_cols,
+                categorical_features=categorical_feature_cols,
+            ),
+        ),
+        ( 
+            "classifier",
+            best_clf
+        ),
     ])
     final_pipe.fit(X_train, y_train)
 
     # evaluate on test set
     test_results = {}
     for name, clf in candidates.items():
-        p = Pipeline([("preprocessor", build_preprocessor()), ("classifier", clf)])
+        p = Pipeline([
+            (
+                "preprocessor",
+                build_preprocessor(
+                    numeric_features=numeric_feature_cols,
+                    categorical_features=categorical_feature_cols,
+                ),
+            ),
+            ("classifier", clf),
+        ])
         p.fit(X_train, y_train)
         test_results[name] = evaluate_model(p, X_test, y_test)
 
