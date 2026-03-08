@@ -6,13 +6,10 @@ Usage:
 
 import sys
 from pathlib import Path
+from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from datetime import datetime
-
-import numpy as np
-import pandas as pd
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
@@ -22,9 +19,7 @@ from xgboost import XGBClassifier
 from src.evaluate import compare_models, evaluate_model, print_summary
 from src.feature_engineering import create_features, get_extended_feature_columns
 from src.preprocessing import (
-    ALL_FEATURES,
     CATEGORICAL_FEATURES,
-    NUMERIC_FEATURES,
     TARGET,
     build_preprocessor,
     clean_data,
@@ -43,7 +38,9 @@ def _build_candidates() -> dict:
     """Return candidate classifier definitions (without preprocessor)."""
     return {
         "Logistic Regression": LogisticRegression(
-            max_iter=1000, random_state=RANDOM_STATE, class_weight="balanced"
+            max_iter=1000,
+            random_state=RANDOM_STATE,
+            class_weight="balanced",
         ),
         "Random Forest": RandomForestClassifier(
             n_estimators=200,
@@ -78,12 +75,12 @@ def _build_candidates() -> dict:
 def train_model():
     """Full training pipeline: load → preprocess → compare → save best model."""
 
-    # data
     logger.info("Loading and preparing data...")
     df_raw = load_raw_data()
     df = clean_data(df_raw)
     df = create_features(df)
 
+    # Usa as features numéricas estendidas + categóricas disponíveis
     numeric_feature_cols = get_extended_feature_columns(df)
     categorical_feature_cols = [c for c in CATEGORICAL_FEATURES if c in df.columns]
     feature_cols = numeric_feature_cols + categorical_feature_cols
@@ -94,30 +91,49 @@ def train_model():
     logger.info("Class distribution — %s", y.value_counts().to_dict())
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_STATE
+        X,
+        y,
+        test_size=TEST_SIZE,
+        stratify=y,
+        random_state=RANDOM_STATE,
     )
     logger.info("Train: %d | Test: %d", len(X_train), len(X_test))
 
-    # cross-validate models
     preprocessor = build_preprocessor(
         numeric_features=numeric_feature_cols,
         categorical_features=categorical_feature_cols,
     )
+
     candidates = _build_candidates()
-    cv = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE)
+    cv = StratifiedKFold(
+        n_splits=CV_FOLDS,
+        shuffle=True,
+        random_state=RANDOM_STATE,
+    )
 
     cv_results: dict[str, float] = {}
     for name, clf in candidates.items():
-        pipe = Pipeline([("preprocessor", preprocessor), ("classifier", clf)])
-        scores = cross_val_score(pipe, X_train, y_train, cv=cv, scoring="f1", n_jobs=-1)
+        pipe = Pipeline([
+            ("preprocessor", preprocessor),
+            ("classifier", clf),
+        ])
+        scores = cross_val_score(
+            pipe,
+            X_train,
+            y_train,
+            cv=cv,
+            scoring="f1",
+            n_jobs=-1,
+        )
         cv_results[name] = scores.mean()
         logger.info("%s CV F1 = %.4f ± %.4f", name, scores.mean(), scores.std())
 
     best_name = max(cv_results, key=cv_results.get)
     logger.info("Best model by CV F1: %s", best_name)
 
-    # train best on full train
     best_clf = candidates[best_name]
+
+    # Pipeline final com o mesmo conjunto de colunas usado no treino
     final_pipe = Pipeline([
         (
             "preprocessor",
@@ -126,14 +142,10 @@ def train_model():
                 categorical_features=categorical_feature_cols,
             ),
         ),
-        ( 
-            "classifier",
-            best_clf
-        ),
+        ("classifier", best_clf),
     ])
-    final_pipe.fit(X_train, y_train)
 
-    # evaluate on test set
+    # Avaliação no conjunto de teste
     test_results = {}
     for name, clf in candidates.items():
         p = Pipeline([
@@ -165,21 +177,26 @@ def train_model():
     print(f"\nSelected model: {best_name}")
     print(best_metrics["classification_report"])
 
-    # serialize model
+    # Treina o pipeline final antes de salvar
+    final_pipe.fit(X_train, y_train)
+
     metadata = {
         "model_name": best_name,
         "feature_columns": feature_cols,
         "trained_at": datetime.utcnow().isoformat(),
         "test_metrics": {
-            k: v for k, v in best_metrics.items()
+            k: v
+            for k, v in best_metrics.items()
             if k != "classification_report"
         },
         "cv_f1": cv_results[best_name],
         "target": TARGET,
         "target_definition": "1 = student not ahead of school grade (Defas >= 0)",
     }
+
     save_model(final_pipe, metadata)
     logger.info("Training complete.")
+
     return final_pipe, metadata
 
 
