@@ -84,7 +84,7 @@ Resources:
       EndpointName: !Sub passos-magicos-${Environment}
       EndpointConfigName: !GetAtt SageMakerEndpointConfig.EndpointConfigName
 
-# ── Outputs ───────────────────────────────────────────────────────────────────
+# Outputs 
 Outputs:
   SageMakerExecutionRoleArn:
     Description: ARN da role do SageMaker
