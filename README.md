@@ -7,8 +7,7 @@
 
 ## 📌 Visão Geral do Projeto
 
-A [Associação Passos Mágicos](https://www.passosmagicos.org.br/) atua há 32 anos na transformação de vida de crianças e
- jovens em vulnerabilidade social, oferecendo educação de qualidade, apoio psicológico/psicopedagógico e ampliação de visão de mundo.
+A [Associação Passos Mágicos](https://www.passosmagicos.org.br/) atua há 32 anos na transformação de vida de crianças e jovens em vulnerabilidade social, oferecendo educação de qualidade, apoio psicológico/psicopedagógico e ampliação de visão de mundo.
 
 ### Problema de Negócio
 
@@ -26,14 +25,14 @@ em produção via API REST, com monitoramento contínuo e testes automatizados.
 
 | Camada | Tecnologia |
 |---|---|
-| Linguagem | Python 3.x |
+| Linguagem | Python 3.14 |
 | ML & Data | scikit-learn, pandas, numpy |
 | API | FastAPI ou Flask |
-| Serialização | pickle / joblib |
+| Serialização | joblib |
 | Testes | pytest |
-| Empacotamento | Docker |
-| Deploy | Local / Heroku / AWS / GCP |
-| Monitoramento | logging + dashboard de drift |
+| Empacotamento | Docker + ECR |
+| Deploy | AWS |
+| Monitoramento | AWS Cloudwatch + Sagemaker Model Monitor |
 
 ---
 
@@ -41,6 +40,17 @@ em produção via API REST, com monitoramento contínuo e testes automatizados.
 
 ```
 project-root/
+│
+├── .github/workflows/
+│   └── deploy.yml           # Workflow para o deploy da infra na AWS
+│
+│
+├── databse/
+│   ├── base_2024.xlsx        # Base 2024
+│   └── bases_antigas.zip     # Bases Antigas
+│
+├── infra/
+│   └── cloudformation.py     # Entrypoint da aplicação
 │
 ├── app/
 │   ├── main.py               # Entrypoint da aplicação
