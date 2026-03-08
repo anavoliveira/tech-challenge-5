@@ -55,8 +55,8 @@ Resources:
   SageMakerModel:
     Type: AWS::SageMaker::Model
     Properties:
-      ModelName: !Sub "passos-magicos"
-      # ModelName: !Sub "passos-magicos-${Environment}-${GitHubSha}"
+      # ModelName: !Sub "passos-magicos"
+      ModelName: !Sub "passos-magicos-${Environment}-${GitHubSha}"
       PrimaryContainer:
         Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}
       ExecutionRoleArn: !GetAtt SageMakerExecutionRole.Arn
@@ -70,7 +70,7 @@ Resources:
       EndpointConfigName: !Sub passos-magicos-${Environment}-${GitHubSha}
       ProductionVariants:
         - VariantName: AllTraffic
-          ModelName: !Ref SageMakerModel
+          ModelName: !GetAtt SageMakerModel.ModelName
           ServerlessConfig:
             MemorySizeInMB: 2048
             MaxConcurrency: 10
