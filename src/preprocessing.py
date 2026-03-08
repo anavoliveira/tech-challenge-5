@@ -135,8 +135,13 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def build_preprocessor() -> ColumnTransformer:
-    """Return a fitted-ready sklearn ColumnTransformer."""
+def build_preprocessor(
+    numeric_features: list[str] | None = None,
+    categorical_features: list[str] | None = None,
+) -> ColumnTransformer:
+    numeric_features = numeric_features or NUMERIC_FEATURES
+    categorical_features = categorical_features or CATEGORICAL_FEATURES
+
     numeric_pipe = Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler()),
@@ -146,19 +151,24 @@ def build_preprocessor() -> ColumnTransformer:
         ("imputer", SimpleImputer(strategy="constant", fill_value="Desconhecido")),
         ("encoder", OrdinalEncoder(
             categories=[
-                PEDRA_ORDER,          # pedra_22
-                PEDRA_ORDER,          # pedra_21
-                ["Desconhecido", "Menino", "Menina"],  # genero
+                PEDRA_ORDER,
+                PEDRA_ORDER,
+                ["Desconhecido", "Menino", "Menina"],
             ],
             handle_unknown="use_encoded_value",
             unknown_value=-1,
         )),
     ])
 
-    return ColumnTransformer(transformers=[
-        ("num", numeric_pipe, NUMERIC_FEATURES),
-        ("cat", categorical_pipe, CATEGORICAL_FEATURES),
-    ])
+    transformers = []
+
+    if numeric_features:
+        transformers.append(("num", numeric_pipe, numeric_features))
+
+    if categorical_features:
+        transformers.append(("cat", categorical_pipe, categorical_features))
+
+    return ColumnTransformer(transformers=transformers)
 
 
 def prepare_dataset() -> tuple[pd.DataFrame, pd.Series]:

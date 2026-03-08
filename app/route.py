@@ -111,7 +111,6 @@ def _classify(prob: float) -> str:
 
 
 def _features_from_input(data: StudentFeatures) -> pd.DataFrame:
-    """Convert API input into the feature DataFrame expected by the pipeline."""
     row = {
         "fase": data.fase,
         "idade": data.idade,
@@ -131,14 +130,20 @@ def _features_from_input(data: StudentFeatures) -> pd.DataFrame:
         "pedra_22": data.pedra_22,
         "pedra_21": data.pedra_21 if data.pedra_21 else "Desconhecido",
         "genero": data.genero,
-        # dummy target (not used for prediction)
         "defas": 0,
     }
+
     df = pd.DataFrame([row])
     df = create_features(df)
-    feature_cols = _metadata.get("feature_columns", ALL_FEATURES)
-    available = [c for c in feature_cols if c in df.columns]
-    return df[available]
+
+    _, metadata = _get_pipeline()
+    feature_cols = metadata.get("feature_columns", [])
+
+    for col in feature_cols:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    return df[feature_cols]
 
 
 # ---------------------------------------------------------------------------

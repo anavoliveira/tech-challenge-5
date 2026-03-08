@@ -20,7 +20,7 @@ from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 
 from src.evaluate import compare_models, evaluate_model, print_summary
-from src.feature_engineering import create_features
+from src.feature_engineering import create_features, get_extended_feature_columns
 from src.preprocessing import (
     ALL_FEATURES,
     CATEGORICAL_FEATURES,
@@ -78,13 +78,16 @@ def _build_candidates() -> dict:
 def train_model():
     """Full training pipeline: load → preprocess → compare → save best model."""
 
-    # ------------------------------------------------------------------ data
+    # data
     logger.info("Loading and preparing data...")
     df_raw = load_raw_data()
     df = clean_data(df_raw)
     df = create_features(df)
 
-    feature_cols = [c for c in ALL_FEATURES if c in df.columns]
+    numeric_feature_cols = get_extended_feature_columns(df)
+    categorical_feature_cols = [c for c in CATEGORICAL_FEATURES if c in df.columns]
+    feature_cols = numeric_feature_cols + categorical_feature_cols
+
     X = df[feature_cols]
     y = df[TARGET]
 
@@ -95,8 +98,11 @@ def train_model():
     )
     logger.info("Train: %d | Test: %d", len(X_train), len(X_test))
 
-    # ------------------------------------------------- cross-validate models
-    preprocessor = build_preprocessor()
+    # cross-validate models
+    preprocessor = build_preprocessor(
+        numeric_features=numeric_feature_cols,
+        categorical_features=categorical_feature_cols,
+    )
     candidates = _build_candidates()
     cv = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE)
 
@@ -110,7 +116,7 @@ def train_model():
     best_name = max(cv_results, key=cv_results.get)
     logger.info("Best model by CV F1: %s", best_name)
 
-    # ------------------------------------------------ train best on full train
+    # train best on full train
     best_clf = candidates[best_name]
     final_pipe = Pipeline([
         ("preprocessor", build_preprocessor()),
@@ -118,7 +124,7 @@ def train_model():
     ])
     final_pipe.fit(X_train, y_train)
 
-    # ---------------------------------------------------- evaluate on test set
+    # evaluate on test set
     test_results = {}
     for name, clf in candidates.items():
         p = Pipeline([("preprocessor", build_preprocessor()), ("classifier", clf)])
@@ -141,7 +147,7 @@ def train_model():
     print(f"\nSelected model: {best_name}")
     print(best_metrics["classification_report"])
 
-    # ------------------------------------------------------- serialize model
+    # serialize model
     metadata = {
         "model_name": best_name,
         "feature_columns": feature_cols,
