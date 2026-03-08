@@ -25,10 +25,8 @@ from src.preprocessing import (
 from src.utils import get_database_path, load_model, save_model, setup_logging
 
 
-# ---------------------------------------------------------------------------
+ 
 # Helpers
-# ---------------------------------------------------------------------------
-
 def _make_raw_df(n: int = 10) -> pd.DataFrame:
     """Minimal synthetic dataframe that mirrors the raw Excel structure."""
     rng = np.random.default_rng(42)
@@ -78,10 +76,8 @@ def _make_raw_df(n: int = 10) -> pd.DataFrame:
     })
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: clean_data
-# ---------------------------------------------------------------------------
-
 class TestCleanData:
     def test_returns_dataframe(self):
         df = clean_data(_make_raw_df())
@@ -138,10 +134,8 @@ class TestCleanData:
         assert (df["anos_no_programa"] == 0).all()
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: _resolve_genero_column
-# ---------------------------------------------------------------------------
-
 class TestResolveGeneroColumn:
     def test_resolves_unicode_column(self):
         df = pd.DataFrame({"G\u00eanero": ["Menino", "Menina"]})
@@ -160,10 +154,8 @@ class TestResolveGeneroColumn:
         assert (result["genero"] == "Desconhecido").all()
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: create_target (via clean_data)
-# ---------------------------------------------------------------------------
-
 class TestCreateTarget:
     def test_defas_zero_is_risk(self):
         raw = _make_raw_df(5)
@@ -185,10 +177,8 @@ class TestCreateTarget:
         assert df[TARGET].sum() == 3
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: build_preprocessor
-# ---------------------------------------------------------------------------
-
 class TestBuildPreprocessor:
     def test_returns_column_transformer(self):
         from sklearn.compose import ColumnTransformer
@@ -222,10 +212,8 @@ class TestBuildPreprocessor:
         assert Xt.shape[0] == 10
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: prepare_dataset (integration, reads real file)
-# ---------------------------------------------------------------------------
-
 class TestPrepareDataset:
     def test_prepare_dataset_returns_x_y(self):
         """Integration test — requires database/base_2024.xlsx to exist."""
@@ -244,10 +232,8 @@ class TestPrepareDataset:
         assert set(y.unique()).issubset({0, 1})
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: constants
-# ---------------------------------------------------------------------------
-
 class TestConstants:
     def test_pedra_order_length(self):
         assert len(PEDRA_ORDER) == 5
@@ -262,10 +248,8 @@ class TestConstants:
         assert TARGET == "risco"
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: utils
-# ---------------------------------------------------------------------------
-
 class TestUtils:
     def test_setup_logging_returns_logger(self):
         import logging
@@ -311,9 +295,9 @@ class TestUtils:
         assert p.name == "model"
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: edge cases for branch coverage
-# ---------------------------------------------------------------------------
+ 
 
 class TestEdgeCases:
     def test_resolve_genero_partial_match(self):

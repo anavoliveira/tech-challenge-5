@@ -23,31 +23,25 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
 
-    # Composite academic performance index (mean of learning indicators)
     acad_cols = [c for c in ("inde", "iaa", "ieg", "ida") if c in df.columns]
     if acad_cols:
         df["indice_academico_medio"] = df[acad_cols].mean(axis=1)
 
-    # Socio-psychological composite (excluding IAN which directly encodes defasagem)
     socio_cols = [c for c in ("ips", "ipv") if c in df.columns]
     if socio_cols:
         df["indice_socio_medio"] = df[socio_cols].mean(axis=1)
 
-    # Grade average (math + Portuguese)
     grade_cols = [c for c in ("matem", "portug") if c in df.columns]
     if grade_cols:
         df["media_notas"] = df[grade_cols].mean(axis=1)
 
-    # INDE deviation from group median by phase
     if "inde" in df.columns and "fase" in df.columns:
         fase_median = df.groupby("fase")["inde"].transform("median")
         df["inde_desvio_fase"] = df["inde"] - fase_median
 
-    # Flag: student enrolled recently (last 2 years)
     if "anos_no_programa" in df.columns:
         df["ingressante_recente"] = (df["anos_no_programa"] <= 2).astype(int)
 
-    # Encode pedra trend (improvement / decline over years)
     _pedra_rank = {"Desconhecido": np.nan, "Ametista": 1, "\u00c1gata": 2, "Quartzo": 3, "Top\u00e1zio": 4}
     for col in ("pedra_22", "pedra_21"):
         rank_col = col.replace("pedra_", "pedra_rank_")

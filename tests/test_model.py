@@ -21,10 +21,8 @@ from src.preprocessing import (
 )
 
 
-# ---------------------------------------------------------------------------
+ 
 # Helpers
-# ---------------------------------------------------------------------------
-
 def _make_raw_df(n: int = 80) -> pd.DataFrame:
     rng = np.random.default_rng(0)
     return pd.DataFrame({
@@ -87,10 +85,8 @@ def _build_fitted_pipeline(df_raw: pd.DataFrame):
     return pipe, X, y
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: feature_engineering
-# ---------------------------------------------------------------------------
-
 class TestFeatureEngineering:
     def test_create_features_adds_columns(self):
         df = clean_data(_make_raw_df(20))
@@ -128,10 +124,8 @@ class TestFeatureEngineering:
         assert list(df.columns) == cols_before
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: evaluate_model
-# ---------------------------------------------------------------------------
-
 class TestEvaluateModel:
     def setup_method(self):
         raw = _make_raw_df(100)
@@ -165,10 +159,8 @@ class TestEvaluateModel:
         assert isinstance(result["classification_report"], str)
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: compare_models
-# ---------------------------------------------------------------------------
-
 class TestCompareModels:
     def test_returns_best_by_f1(self):
         results = {
@@ -183,9 +175,9 @@ class TestCompareModels:
         assert compare_models(results) == "OnlyModel"
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: pipeline predict
-# ---------------------------------------------------------------------------
+ 
 
 class TestPipelinePredict:
     def setup_method(self):
@@ -213,12 +205,8 @@ class TestPipelinePredict:
     def test_probability_between_0_and_1(self):
         probas = self.pipe.predict_proba(self.X)
         assert (probas >= 0).all() and (probas <= 1).all()
-
-
-# ---------------------------------------------------------------------------
+ 
 # Tests: print_summary
-# ---------------------------------------------------------------------------
-
 class TestPrintSummary:
     def test_runs_without_error(self, capsys):
         results = {
@@ -236,10 +224,8 @@ class TestPrintSummary:
         assert "RandomForest" in capsys.readouterr().out
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: select_top_features
-# ---------------------------------------------------------------------------
-
 class TestSelectTopFeatures:
     def test_returns_list_of_strings(self):
         df = clean_data(_make_raw_df(60))

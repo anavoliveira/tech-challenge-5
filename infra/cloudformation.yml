@@ -18,11 +18,8 @@ Parameters:
       - prod
     Description: Ambiente de deploy
 
-Resources:
-
-  # --------------------------------------------------------------------------
+Resources:  
   # 1. IAM Role
-  # --------------------------------------------------------------------------
   SageMakerExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -48,10 +45,7 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*
-
-  # --------------------------------------------------------------------------
   # 2. SageMaker Model
-  # --------------------------------------------------------------------------
   SageMakerModel:
     Type: AWS::SageMaker::Model
     Properties:
@@ -60,10 +54,7 @@ Resources:
       PrimaryContainer:
         Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}
       ExecutionRoleArn: !GetAtt SageMakerExecutionRole.Arn
-
-  # --------------------------------------------------------------------------
   # 3. SageMaker EndpointConfig
-  # --------------------------------------------------------------------------
   SageMakerEndpointConfig:
     Type: AWS::SageMaker::EndpointConfig
     Properties:
@@ -74,19 +65,13 @@ Resources:
           ServerlessConfig:
             MemorySizeInMB: 2048
             MaxConcurrency: 10
-
-  # --------------------------------------------------------------------------
   # 4. SageMaker Endpoint 
-  # --------------------------------------------------------------------------
   SageMakerEndpoint:
     Type: AWS::SageMaker::Endpoint
     Properties:
       EndpointName: !Sub passos-magicos-${Environment}
       EndpointConfigName: !GetAtt SageMakerEndpointConfig.EndpointConfigName
-
-  # --------------------------------------------------------------------------
   # 5. IAM Role — API Gateway → SageMaker
-  # --------------------------------------------------------------------------
   ApiGatewayRole:
     Type: AWS::IAM::Role
     Properties:
@@ -106,10 +91,7 @@ Resources:
               - Effect: Allow
                 Action: sagemaker:InvokeEndpoint
                 Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/passos-magicos-${Environment}
-
-  # --------------------------------------------------------------------------
   # 6. API Gateway REST API
-  # --------------------------------------------------------------------------
   RestApi:
     Type: AWS::ApiGateway::RestApi
     Properties:
@@ -135,9 +117,7 @@ Resources:
       ParentId: !GetAtt RestApi.RootResourceId
       PathPart: health
 
-  # --------------------------------------------------------------------------
   # 7. Método POST /predict → SageMaker (integração direta, sem Lambda)
-  # --------------------------------------------------------------------------
   PredictMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -162,9 +142,7 @@ Resources:
           ResponseModels:
             application/json: Empty
 
-  # --------------------------------------------------------------------------
   # 8. Método GET /health → resposta estática (mock)
-  # --------------------------------------------------------------------------
   HealthMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -185,9 +163,7 @@ Resources:
           ResponseModels:
             application/json: Empty
 
-  # --------------------------------------------------------------------------
   # 9. Deploy e Stage do API Gateway
-  # --------------------------------------------------------------------------
   ApiDeployment:
     Type: AWS::ApiGateway::Deployment
     DependsOn:

@@ -11,10 +11,8 @@ import pytest
 from sklearn.base import ClassifierMixin
 
 
-# ---------------------------------------------------------------------------
+ 
 # Helpers
-# ---------------------------------------------------------------------------
-
 def _make_raw_df(n: int = 120) -> pd.DataFrame:
     rng = np.random.default_rng(7)
     return pd.DataFrame({
@@ -63,10 +61,8 @@ def _make_raw_df(n: int = 120) -> pd.DataFrame:
     })
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: _build_candidates
-# ---------------------------------------------------------------------------
-
 class TestBuildCandidates:
     def test_returns_four_models(self):
         from src.train import _build_candidates
@@ -108,10 +104,8 @@ class TestBuildCandidates:
         assert len(preds) == len(X)
 
 
-# ---------------------------------------------------------------------------
+ 
 # Tests: train_model (fast, patched)
-# ---------------------------------------------------------------------------
-
 class TestTrainModel:
     def test_train_model_returns_pipeline_and_metadata(self, monkeypatch, tmp_path):
         """End-to-end train with synthetic data and temp model directory."""

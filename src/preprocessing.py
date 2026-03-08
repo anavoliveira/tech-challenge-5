@@ -16,9 +16,9 @@ from src.utils import get_database_path, setup_logging
 
 logger = setup_logging("preprocessing")
 
-# ---------------------------------------------------------------------------
+ 
 # Column constants
-# ---------------------------------------------------------------------------
+ 
 
 # Pedra ranking from lowest to highest performance
 PEDRA_ORDER = ["Desconhecido", "Ametista", "\u00c1gata", "Quartzo", "Top\u00e1zio"]

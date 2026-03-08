@@ -20,10 +20,7 @@ from src.utils import load_model, setup_logging
 logger = setup_logging("api.route")
 router = APIRouter()
 
-# ---------------------------------------------------------------------------
 # Schema
-# ---------------------------------------------------------------------------
-
 class StudentFeatures(BaseModel):
     """Input features for a single student prediction.
 
@@ -81,10 +78,7 @@ class PredictionResponse(BaseModel):
     modelo: str = Field(..., description="Nome do modelo utilizado")
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
-
 _pipeline = None
 _metadata: dict = {}
 
@@ -146,21 +140,18 @@ def _features_from_input(data: StudentFeatures) -> pd.DataFrame:
     return df[feature_cols]
 
 
-# ---------------------------------------------------------------------------
+ 
 # Routes
-# ---------------------------------------------------------------------------
-
 @router.get("/health", tags=["Health"])
 def health_check():
     """Liveness probe."""
     return {"status": "ok"}
 
 
-# ---------------------------------------------------------------------------
-# SageMaker-required routes
-# GET /ping        → health check (SageMaker expects 200)
-# POST /invocations → predictions (SageMaker sends requests here)
-# ---------------------------------------------------------------------------
+ 
+# SageMaker routes
+# GET /ping        → health check 
+# POST /invocations → predictions
 
 @router.get("/ping", tags=["SageMaker"])
 def sagemaker_ping():
