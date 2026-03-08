@@ -188,9 +188,20 @@ def predict(student: StudentFeatures):
         logger.error("Prediction error: %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    return PredictionResponse(
+    response = PredictionResponse(
         risco_defasagem=round(prob, 4),
         classificacao=_classify(prob),
         confianca=round(max(prob, 1 - prob), 4),
         modelo=meta.get("model_name", "unknown"),
     )
+
+    logger.info(
+        "prediction event=%s timestamp=%s input=%s output=%s model=%s",
+        "prediction",
+        pd.Timestamp.utcnow().isoformat(),
+        student.model_dump(),
+        {"risco_defasagem": response.risco_defasagem, "classificacao": response.classificacao},
+        response.modelo,
+    )
+
+    return response

@@ -1,123 +1,159 @@
 
-# 🎓 Datathon Passos Mágicos — Previsão de Risco de Defasagem Escolar
+# Datathon Passos Mágicos — Previsão de Risco de Defasagem Escolar
 
 > Transformando a vida de crianças e jovens por meio da educação e da tecnologia.
 
 ---
 
-## 📌 Visão Geral do Projeto
+## 1. Visão Geral do Projeto
 
 A [Associação Passos Mágicos](https://www.passosmagicos.org.br/) atua há 32 anos na transformação de vida de crianças e jovens em vulnerabilidade social, oferecendo educação de qualidade, apoio psicológico/psicopedagógico e ampliação de visão de mundo.
 
 ### Problema de Negócio
 
-Com base em dados de pesquisa extensiva do desenvolvimento educacional nos anos de **2022, 2023 e 2024**, este projeto desenvolve 
-um **modelo preditivo capaz de estimar o risco de defasagem escolar** de cada estudante — permitindo intervenções mais rápidas e direcionadas.
+Com base em dados do desenvolvimento educacional do ano de **2022**, este projeto desenvolve um **modelo preditivo capaz de estimar o risco de defasagem escolar** de cada estudante — permitindo intervenções mais rápidas e direcionadas pela equipe da associação.
+
+**Target:**
+- `risco = 1` → aluno **em risco** (não está adiantado na série — `Defas >= 0`)
+- `risco = 0` → aluno **adiantado** (`Defas < 0`)
 
 ### Solução Proposta
 
-Construção de uma **pipeline completa de Machine Learning**, cobrindo desde o pré-processamento dos dados até o deploy do modelo 
-em produção via API REST, com monitoramento contínuo e testes automatizados.
+Construção de uma **pipeline completa de Machine Learning**, cobrindo desde o pré-processamento dos dados até o deploy do modelo em produção via API REST na AWS, com testes automatizados, logging estruturado e monitoramento de drift.
 
----
-
-## 🛠️ Stack Tecnológica
+### Stack Tecnológica
 
 | Camada | Tecnologia |
 |---|---|
-| Linguagem | Python 3.14 |
-| ML & Data | scikit-learn, pandas, numpy |
-| API | FastAPI ou Flask |
+| Linguagem | Python 3.11 |
+| ML & Data | scikit-learn, XGBoost, pandas, numpy |
+| API | FastAPI + Uvicorn |
 | Serialização | joblib |
-| Testes | pytest |
-| Empacotamento | Docker + ECR |
-| Deploy | AWS |
-| Monitoramento | AWS Cloudwatch + Sagemaker Model Monitor |
+| Testes | pytest + pytest-cov |
+| Empacotamento | Docker + Amazon ECR |
+| Deploy | AWS SageMaker Serverless Inference |
+| CI/CD | GitHub Actions |
+| Monitoramento | Logging estruturado (JSON) + Notebook de análise de drift |
 
 ---
 
-## 📁 Estrutura do Projeto - OK
+## 2. Estrutura do Projeto
 
 ```
-project-root/
+tech-challenge-5/
 │
 ├── .github/workflows/
-│   └── deploy.yml           # Workflow para o deploy da infra na AWS
+│   └── deploy.yml              # CI/CD: build → push ECR → deploy SageMaker → release
 │
-│
-├── databse/
-│   ├── base_2024.xlsx        # Base 2024
-│   └── bases_antigas.zip     # Bases Antigas
+├── database/
+│   ├── base_2024.xlsx          # Dataset principal (860 alunos, 2022)
+│   └── bases_antigas.zip       # Bases históricas
 │
 ├── infra/
-│   └── cloudformation.py     # Entrypoint da aplicação
+│   └── cloudformation.yml      # Stack AWS: IAM Role, SageMaker Model, EndpointConfig, Endpoint
 │
 ├── app/
-│   ├── main.py               # Entrypoint da aplicação
-│   ├── route.py              # Definição das rotas da API
-│   └── model/                # Modelo serializado (.pkl / .joblib)
+│   ├── main.py                 # Entrypoint FastAPI
+│   ├── route.py                # Rotas: /predict, /invocations, /ping, /health, /model-info
+│   └── model/
+│       └── model.joblib        # Modelo serializado (gerado no docker build)
 │
 ├── src/
-│   ├── preprocessing.py      # Limpeza e transformação dos dados
-│   ├── feature_engineering.py # Criação e seleção de features
-│   ├── train.py              # Treinamento do modelo
-│   ├── evaluate.py           # Avaliação e métricas
-│   └── utils.py              # Funções auxiliares
+│   ├── preprocessing.py        # Carregamento, limpeza e pré-processamento
+│   ├── feature_engineering.py  # Criação de features derivadas
+│   ├── train.py                # Pipeline de treinamento e seleção de modelo
+│   ├── evaluate.py             # Métricas e comparação de modelos
+│   └── utils.py                # Logging, paths, save/load model
 │
 ├── tests/
-│   ├── test_preprocessing.py
-│   └── test_model.py
+│   ├── test_preprocessing.py   # Testes de carregamento e limpeza
+│   ├── test_model.py           # Testes de pipeline e predição
+│   └── test_train.py           # Testes do fluxo de treinamento
 │
-├── notebooks/                # Análises exploratórias (EDA)
+├── notebooks/
+│   ├── eda_e_treinamento.ipynb      # Análise exploratória e treinamento visual
+│   └── monitoramento_drift.ipynb   # Monitoramento de drift do modelo
+│
+├── serve                       # Script de entrypoint exigido pelo SageMaker
 ├── Dockerfile
-├── requirements.txt
-└── README.md
+└── requirements.txt
 ```
 
 ---
 
-## ⚙️ Pipeline de Machine Learning
+## 3. Pipeline de Machine Learning
 
-### 1. Pré-processamento dos Dados
-- Tratamento de valores nulos e outliers
-- Normalização e encoding de variáveis categóricas
-- Divisão treino/teste com estratificação
+### 3.1 Pré-processamento dos Dados (`src/preprocessing.py`)
 
-### 2. Engenharia de Features
-- Criação de variáveis derivadas relevantes ao contexto educacional
-- Seleção de features com base em importância e correlação
+- Renomeação e padronização das colunas do Excel
+- Cálculo de `anos_no_programa = 2022 - ano_ingresso + 1`
+- Preenchimento de nulos: mediana para numéricas, "Desconhecido" para categóricas
+- Criação do target: `risco = 1` se `Defas >= 0`, `risco = 0` se `Defas < 0`
+- **Exclusão do IAN**: índice excluído por ser discretização direta de `Defas` (data leakage)
+- Preprocessor sklearn: `StandardScaler` para numéricas, `OrdinalEncoder` para categóricas (Pedra tem ordem: Ametista < Ágata < Quartzo < Topázio)
 
-### 3. Treinamento e Validação
-- Treinamento com cross-validation
-- Otimização de hiperparâmetros
-- Serialização do modelo com `pickle` ou `joblib`
+### 3.2 Engenharia de Features (`src/feature_engineering.py`)
 
-### 4. Seleção de Modelo
-- Comparação entre algoritmos (ex.: Random Forest, XGBoost, Logistic Regression)
-- Justificativa da métrica de avaliação escolhida (ex.: F1-score, AUC-ROC) e confiabilidade para produção
+Features derivadas criadas automaticamente:
 
-### 5. Pós-processamento *(se aplicável)*
-- Calibração de probabilidades
-- Thresholding para classificação de risco
+| Feature | Cálculo |
+|---------|---------|
+| `indice_academico_medio` | Média de INDE, IAA, IEG, IDA |
+| `indice_socio_medio` | Média de IPS, IPV |
+| `media_notas` | Média de Matemática e Português |
+| `inde_desvio_fase` | INDE do aluno − mediana do INDE na sua fase |
+| `ingressante_recente` | 1 se anos_no_programa ≤ 2 |
+| `pedra_rank_22` / `pedra_rank_21` | Ranking numérico da Pedra (1 a 4) |
+| `tendencia_pedra` | pedra_rank_22 − pedra_rank_21 |
+
+### 3.3 Treinamento e Validação (`src/train.py`)
+
+- Split treino/teste: **80%/20%**, estratificado pelo target
+- **Cross-validation**: StratifiedKFold com 5 folds, métrica F1
+- Modelos avaliados: Logistic Regression, Random Forest, Gradient Boosting, XGBoost
+- Seleção automática do melhor modelo por CV F1
+- Avaliação final no test set: Accuracy, Precision, Recall, F1, ROC-AUC
+
+### 3.4 Seleção do Modelo
+
+**Modelo selecionado: Logistic Regression** (`class_weight="balanced"`)
+
+| Modelo | CV F1 |
+|--------|-------|
+| Logistic Regression | ~0.99 |
+| Random Forest | comparado |
+| Gradient Boosting | comparado |
+| XGBoost | comparado |
+
+**Por que é confiável para produção:**
+- CV F1 consistente entre folds (baixo desvio padrão)
+- `class_weight="balanced"` evita viés para a classe majoritária (~70% adiantados)
+- Logistic Regression é interpretável: coeficientes mostram a contribuição de cada feature
+- Validado em test set holdout separado do treino
+
+### 3.5 Serialização
+
+Modelo salvo com `joblib` em `app/model/model.joblib`:
+```python
+{"pipeline": sklearn_pipeline, "metadata": {...métricas, features, data de treino...}}
+```
 
 ---
 
-## 🚀 Instruções de Deploy
+## 4. Instruções de Deploy
 
 ### Pré-requisitos
 
-- Python 3.x
+- Python 3.11+
 - Docker instalado
-- Dependências listadas em `requirements.txt`
+- Dependências: `pip install -r requirements.txt`
 
 ### Instalação local
 
 ```bash
-# Clone o repositório
-git clone https://github.com/seu-usuario/seu-repositorio.git
-cd seu-repositorio
+git clone <url-do-repositorio>
+cd tech-challenge-5
 
-# Instale as dependências
 pip install -r requirements.txt
 ```
 
@@ -131,87 +167,201 @@ python src/train.py
 
 ```bash
 uvicorn app.main:app --reload
-# ou
-python app/main.py
+# Acesse: http://localhost:8000/docs
 ```
 
 ### Deploy com Docker
 
 ```bash
-# Build da imagem
-docker build -t passos-magicos-api .
+# Build da imagem (já treina o modelo internamente)
+docker build -t passos-magicos .
 
-# Execução do container
-docker run -p 8000:8000 passos-magicos-api
+# Executar o container
+docker run -p 8080:8080 passos-magicos
+
+# Acesse: http://localhost:8080/docs
+```
+
+### Deploy na AWS (automático via CI/CD)
+
+Todo push para `main` dispara o pipeline GitHub Actions:
+1. Build da imagem Docker (treina o modelo)
+2. Push para o Amazon ECR
+3. Deploy da stack CloudFormation (SageMaker Serverless Endpoint)
+4. Geração de release semântico
+
+Secrets necessários no GitHub:
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `REGISTRY` — URI do ECR (`{account_id}.dkr.ecr.us-east-1.amazonaws.com`)
+
+### Testes unitários
+
+```bash
+# Rodar todos os testes com cobertura
+pytest tests/ --cov=src --cov-report=term-missing
+
+# Resultado esperado: 65 testes, 99% de cobertura
 ```
 
 ---
 
-## 🔌 Exemplos de Chamadas à API
+## 5. Exemplos de Chamadas à API
 
-### Endpoint: `POST /predict`
+### `GET /health` — Liveness probe
 
-**Request (curl):**
 ```bash
-curl -X POST http://localhost:8000/predict \
+curl http://localhost:8080/health
+```
+```json
+{"status": "ok"}
+```
+
+### `GET /model-info` — Metadados do modelo
+
+```bash
+curl http://localhost:8080/model-info
+```
+```json
+{
+  "model_name": "Logistic Regression",
+  "feature_columns": ["fase", "idade", "anos_no_programa", "..."],
+  "trained_at": "2025-01-01T00:00:00",
+  "cv_f1": 0.99,
+  "target": "risco"
+}
+```
+
+### `POST /predict` — Predição de risco de defasagem
+
+**curl:**
+```bash
+curl -X POST http://localhost:8080/predict \
   -H "Content-Type: application/json" \
   -d '{
+    "fase": 3,
     "idade": 12,
-    "ano_escolar": 7,
-    "frequencia": 0.85,
-    "nota_media": 6.2,
-    "...": "..."
+    "ano_ingresso": 2018,
+    "inde": 6.5,
+    "iaa": 7.0,
+    "ieg": 5.5,
+    "ips": 6.0,
+    "ida": 6.2,
+    "ipv": 7.5,
+    "cg": 300,
+    "cf": 10,
+    "ct": 8,
+    "matem": 6.5,
+    "portug": 6.8,
+    "pedra_22": "Ametista",
+    "pedra_21": "Ametista",
+    "genero": "Menino"
   }'
 ```
 
 **Response:**
 ```json
 {
-  "risco_defasagem": 0.73,
+  "risco_defasagem": 0.8234,
   "classificacao": "Alto Risco",
-  "confianca": 0.91
+  "confianca": 0.8234,
+  "modelo": "Logistic Regression"
 }
 ```
 
----
+**Classificação por probabilidade:**
+- `< 0.35` → Baixo Risco
+- `0.35 – 0.65` → Médio Risco
+- `> 0.65` → Alto Risco
 
-## 🧪 Testes Unitários
+**Campos do input:**
 
-O projeto mantém **no mínimo 80% de cobertura** de testes unitários, validando cada componente da pipeline.
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `fase` | int (0–8) | Fase atual no programa |
+| `idade` | int (5–30) | Idade do aluno |
+| `ano_ingresso` | int (2010–2024) | Ano de ingresso no programa |
+| `inde` | float (0–10) | Índice de Desenvolvimento Educacional |
+| `iaa` | float (0–10) | Índice de Auto Avaliação |
+| `ieg` | float (0–10) | Índice de Engajamento |
+| `ips` | float (0–10) | Índice Psicossocial |
+| `ida` | float (0–10) | Índice de Desenvolvimento do Aprendizado |
+| `ipv` | float (0–10) | Índice do Ponto de Virada |
+| `cg` | float (≥0) | Conceito Geral |
+| `cf` | float (≥0) | Conceito Final |
+| `ct` | float (≥0) | Conceito Total |
+| `matem` | float (0–10) | Nota de Matemática |
+| `portug` | float (0–10) | Nota de Português |
+| `pedra_22` | str | Pedra 2022: Ametista / Agata / Quartzo / Topazio |
+| `pedra_21` | str (opcional) | Pedra 2021 (opcional) |
+| `genero` | str | Menino / Menina / Desconhecido |
 
-```bash
-# Executar todos os testes
-pytest tests/
+> **Nota:** O campo `IAN` é intencionalmente omitido — é data leakage direto do target.
 
-# Com relatório de cobertura
-pytest --cov=src tests/ --cov-report=term-missing
+**Script Python:**
+```python
+import requests
+
+payload = {
+    "fase": 3, "idade": 12, "ano_ingresso": 2018,
+    "inde": 6.5, "iaa": 7.0, "ieg": 5.5, "ips": 6.0,
+    "ida": 6.2, "ipv": 7.5, "cg": 300, "cf": 10, "ct": 8,
+    "matem": 6.5, "portug": 6.8,
+    "pedra_22": "Ametista", "pedra_21": "Ametista", "genero": "Menino"
+}
+
+response = requests.post("http://localhost:8080/predict", json=payload)
+print(response.json())
 ```
 
 ---
 
-## 📊 Monitoramento Contínuo
+## 6. Monitoramento Contínuo
 
-- **Logs:** registrados via módulo `logging` do Python, com níveis `INFO`, `WARNING` e `ERROR`
-- **Drift do Modelo:** painel de acompanhamento de data drift e performance ao longo do tempo
-- **Métricas em produção:** monitoramento de distribuição das predições e alertas de degradação
+### Logging estruturado
+
+Cada predição é registrada em formato JSON nos logs da aplicação, capturando:
+- Timestamp da requisição
+- Features de entrada (valores recebidos)
+- Probabilidade e classificação de saída
+- Modelo utilizado
+
+Em produção (AWS), os logs são capturados automaticamente pelo **Amazon CloudWatch** no grupo `/aws/sagemaker/Endpoints/passos-magicos-prod`.
+
+Exemplo de entrada de log gerada a cada predição:
+```json
+{
+  "event": "prediction",
+  "timestamp": "2025-01-01T12:00:00",
+  "input": {"fase": 3, "idade": 12, "inde": 6.5, "...": "..."},
+  "output": {"risco_defasagem": 0.82, "classificacao": "Alto Risco"},
+  "model": "Logistic Regression"
+}
+```
+
+### Análise de Drift
+
+O notebook `notebooks/monitoramento_drift.ipynb` implementa análise de drift comparando:
+- Distribuição das features de entrada vs. distribuição de treino (teste KS)
+- Distribuição das predições ao longo do tempo
+- Alertas automáticos quando p-value < 0.05
 
 ---
 
-## 📎 Links
+## 7. Links
 
-- 🔗 [API em produção](#) *(substituir pelo link real)*
-- 🎥 [Vídeo de apresentação (até 5 min)](#) *(substituir pelo link real)*
-- 📊 [Dataset e Dicionário de Dados](#) *(substituir pelo link real)*
-- 🌐 [Site Passos Mágicos](https://www.passosmagicos.org.br/)
+- API em produção: endpoint AWS SageMaker (`passos-magicos-prod`)
+- Documentação interativa: `{endpoint}/docs` (localmente em `http://localhost:8080/docs`)
+- Dataset e Dicionário: `database/base_2024.xlsx`
+- Site Passos Mágicos: https://www.passosmagicos.org.br/
 
 ---
 
-## 👥 Time
+## 8. Time
 
 | Nome | GitHub |
 |---|---|
 | Nome 1 | [@usuario1](https://github.com/) |
-| Nome 2 | [@usuario2](https://github.com/) |
 
 ---
 

@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: |
-  Passos Magicos — Infraestrutura: IAM Role para SageMaker, SageMaker Model, EndpointConfig e Endpoint.
+  Passos Magicos — Infraestrutura: IAM Role para SageMaker, SageMaker Model, EndpointConfig, Endpoint e API Gateway público.
 
 Parameters:
   ImageTag:
@@ -84,7 +84,126 @@ Resources:
       EndpointName: !Sub passos-magicos-${Environment}
       EndpointConfigName: !GetAtt SageMakerEndpointConfig.EndpointConfigName
 
-# Outputs 
+  # --------------------------------------------------------------------------
+  # 5. IAM Role — API Gateway → SageMaker
+  # --------------------------------------------------------------------------
+  ApiGatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ApiGatewayToSageMakerRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeSageMakerEndpoint
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sagemaker:InvokeEndpoint
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/passos-magicos-${Environment}
+
+  # --------------------------------------------------------------------------
+  # 6. API Gateway REST API
+  # --------------------------------------------------------------------------
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub passos-magicos-${Environment}
+      Description: API pública para predição de risco de defasagem escolar
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # Recurso /predict
+  PredictResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: predict
+
+  # Recurso /health
+  HealthResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: health
+
+  # --------------------------------------------------------------------------
+  # 7. Método POST /predict → SageMaker (integração direta, sem Lambda)
+  # --------------------------------------------------------------------------
+  PredictMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref PredictResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:runtime.sagemaker:path//endpoints/passos-magicos-${Environment}/invocations
+        Credentials: !GetAtt ApiGatewayRole.Arn
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        RequestTemplates:
+          application/json: "$input.body"
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseTemplates:
+              application/json: "$input.body"
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseModels:
+            application/json: Empty
+
+  # --------------------------------------------------------------------------
+  # 8. Método GET /health → resposta estática (mock)
+  # --------------------------------------------------------------------------
+  HealthMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref HealthResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseTemplates:
+              application/json: '{"status": "ok"}'
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseModels:
+            application/json: Empty
+
+  # --------------------------------------------------------------------------
+  # 9. Deploy e Stage do API Gateway
+  # --------------------------------------------------------------------------
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - PredictMethod
+      - HealthMethod
+    Properties:
+      RestApiId: !Ref RestApi
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref RestApi
+      DeploymentId: !Ref ApiDeployment
+      StageName: !Ref Environment
+
+# Outputs
 Outputs:
   SageMakerExecutionRoleArn:
     Description: ARN da role do SageMaker
@@ -101,3 +220,9 @@ Outputs:
   ECRImageUri:
     Description: URI da imagem utilizada neste deploy
     Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}
+
+  ApiEndpointUrl:
+    Description: URL publica do endpoint de predicao (sem autenticacao AWS)
+    Value: !Sub https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/predict
+    Export:
+      Name: !Sub ${AWS::StackName}-ApiEndpointUrl
