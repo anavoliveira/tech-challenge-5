@@ -53,7 +53,7 @@ Resources:
   SageMakerModel:
     Type: AWS::SageMaker::Model
     Properties:
-      ModelName: !Sub "passos-magicos-${Environment}-${ImageTag}"
+      # ModelName: !Sub "passos-magicos-${Environment}-${ImageTag}"
       PrimaryContainer:
         Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}"
       ExecutionRoleArn: !GetAtt SageMakerExecutionRole.Arn
