@@ -1,12 +1,11 @@
-AWSTemplateFormatVersion: "2010-09-09"
-Description: >
-  Passos Magicos — Infraestrutura:
-  IAM Role para SageMaker, SageMaker Model, EndpointConfig e Endpoint.
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Passos Magicos — Infraestrutura: IAM Role para SageMaker, SageMaker Model, EndpointConfig e Endpoint.
 
 Parameters:
   ImageTag:
     Type: String
-    Description: "Tag da imagem Docker (github.sha)"
+    Description: Tag da imagem Docker (github.sha)
 
   Environment:
     Type: String
@@ -14,7 +13,7 @@ Parameters:
     AllowedValues:
       - dev
       - prod
-    Description: "Ambiente de deploy"
+    Description: Ambiente de deploy
 
 Resources:
 
@@ -26,7 +25,7 @@ Resources:
     Properties:
       RoleName: SageMakerExecutionRole
       AssumeRolePolicyDocument:
-        Version: "2012-10-17"
+        Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
@@ -38,14 +37,14 @@ Resources:
       Policies:
         - PolicyName: SageMakerCloudWatchLogs
           PolicyDocument:
-            Version: "2012-10-17"
+            Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*"
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*
 
   # --------------------------------------------------------------------------
   # 2. SageMaker Model
@@ -53,9 +52,10 @@ Resources:
   SageMakerModel:
     Type: AWS::SageMaker::Model
     Properties:
+      ModelName: !Sub "passos-magicos"
       # ModelName: !Sub "passos-magicos-${Environment}-${ImageTag}"
       PrimaryContainer:
-        Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}"
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}
       ExecutionRoleArn: !GetAtt SageMakerExecutionRole.Arn
 
   # --------------------------------------------------------------------------
@@ -64,7 +64,7 @@ Resources:
   SageMakerEndpointConfig:
     Type: AWS::SageMaker::EndpointConfig
     Properties:
-      EndpointConfigName: !Sub "passos-magicos-${Environment}-${ImageTag}"
+      EndpointConfigName: !Sub passos-magicos-${Environment}-${ImageTag}
       ProductionVariants:
         - VariantName: AllTraffic
           ModelName: !Ref SageMakerModel
@@ -78,23 +78,23 @@ Resources:
   SageMakerEndpoint:
     Type: AWS::SageMaker::Endpoint
     Properties:
-      EndpointName: !Sub "passos-magicos-${Environment}"
+      EndpointName: !Sub passos-magicos-${Environment}
       EndpointConfigName: !GetAtt SageMakerEndpointConfig.EndpointConfigName
 
 # ── Outputs ───────────────────────────────────────────────────────────────────
 Outputs:
   SageMakerExecutionRoleArn:
-    Description: "ARN da role do SageMaker"
+    Description: ARN da role do SageMaker
     Value: !GetAtt SageMakerExecutionRole.Arn
     Export:
-      Name: !Sub "${AWS::StackName}-SageMakerExecutionRoleArn"
+      Name: !Sub ${AWS::StackName}-SageMakerExecutionRoleArn
 
   SageMakerEndpointName:
-    Description: "Nome do endpoint SageMaker"
+    Description: Nome do endpoint SageMaker
     Value: !GetAtt SageMakerEndpoint.EndpointName
     Export:
-      Name: !Sub "${AWS::StackName}-SageMakerEndpointName"
+      Name: !Sub ${AWS::StackName}-SageMakerEndpointName
 
   ECRImageUri:
-    Description: "URI da imagem utilizada neste deploy"
-    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}"
+    Description: URI da imagem utilizada neste deploy
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}
