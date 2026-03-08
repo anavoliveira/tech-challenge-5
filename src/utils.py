@@ -1,5 +1,3 @@
-"""Utility functions: logging, paths, model persistence."""
-
 import logging
 import sys
 from pathlib import Path
@@ -31,21 +29,19 @@ def setup_logging(name: str = "passos_magicos") -> logging.Logger:
 
 
 def save_model(pipeline, metadata: dict = None, filename: str = "model.joblib") -> Path:
-    """Persist the fitted pipeline and metadata to app/model/."""
     model_dir = get_model_path()
     model_dir.mkdir(parents=True, exist_ok=True)
     dest = model_dir / filename
     payload = {"pipeline": pipeline, "metadata": metadata or {}}
     joblib.dump(payload, dest)
     logger = setup_logging()
-    logger.info("Model saved to %s", dest)
+    logger.info("modelo salvo em %s", dest)
     return dest
 
 
 def load_model(filename: str = "model.joblib"):
-    """Load pipeline and metadata from app/model/."""
     dest = get_model_path() / filename
     if not dest.exists():
-        raise FileNotFoundError(f"Model file not found: {dest}")
+        raise FileNotFoundError(f"arquivo do modelo não encontrado: {dest}")
     payload = joblib.load(dest)
     return payload["pipeline"], payload.get("metadata", {})

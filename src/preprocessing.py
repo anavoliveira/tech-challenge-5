@@ -1,5 +1,3 @@
-"""Data loading, cleaning, and preprocessing pipeline."""
-
 import sys
 from pathlib import Path
 
@@ -16,12 +14,9 @@ from src.utils import get_database_path, setup_logging
 
 logger = setup_logging("preprocessing")
 
- 
-# Column constants
- 
 
-# Pedra ranking from lowest to highest performance
-PEDRA_ORDER = ["Desconhecido", "Ametista", "\u00c1gata", "Quartzo", "Top\u00e1zio"]
+# pedra vai de ametista (pior) até topázio (melhor)
+PEDRA_ORDER = ["Desconhecido", "Ametista", "Ágata", "Quartzo", "Topázio"]
 
 NUMERIC_FEATURES = [
     "fase",
@@ -49,7 +44,7 @@ CATEGORICAL_FEATURES = [
 ALL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 TARGET = "risco"
 
-# Mapping from raw Excel columns to internal names
+# mapeamento das colunas do excel para os nomes internos
 _COLUMN_MAP = {
     "Fase": "fase",
     "Idade 22": "idade",
@@ -71,64 +66,58 @@ _COLUMN_MAP = {
     "Defas": "defas",
 }
 
-# Gênero column has special encoding; we resolve it by prefix match
-_GENERO_RAW_OPTIONS = ["G\u00eanero", "Genero", "g\u00eanero", "genero"]
+# a coluna de gênero vem com encoding diferente dependendo da versão do excel
+_GENERO_RAW_OPTIONS = ["Gênero", "Genero", "gênero", "genero"]
 
 
 def load_raw_data() -> pd.DataFrame:
-    """Load 2024 base Excel file."""
     path = get_database_path() / "base_2024.xlsx"
     df = pd.read_excel(path)
-    logger.info("Loaded %s: %s", path.name, df.shape)
+    logger.info("carregou %s: %s linhas", path.name, df.shape[0])
     return df
 
 
-def _resolve_genero_column(df: pd.DataFrame) -> pd.DataFrame:  # noqa: D401
-    """Rename the gender column regardless of encoding."""
+def _resolve_genero_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Renomeia a coluna de gênero independente do encoding."""
     for candidate in _GENERO_RAW_OPTIONS:
         if candidate in df.columns:
             return df.rename(columns={candidate: "genero"})
-    # Try partial match
+    # tenta match parcial caso venha com alguma variação estranha
     for col in df.columns:
         if col.lower().startswith("g") and "nero" in col.lower():
             return df.rename(columns={col: "genero"})
-    logger.warning("Gender column not found; creating dummy.")
+    logger.warning("coluna de gênero não encontrada, criando dummy")
     df["genero"] = "Desconhecido"
     return df
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename columns, engineer base features, create binary target."""
     df = df.copy()
 
-    # Rename known columns
     df = df.rename(columns=_COLUMN_MAP)
-
-    # Resolve gender column
     df = _resolve_genero_column(df)
 
-    # Derived feature: years in programme
+    # anos no programa = ano atual (2022) - ingresso + 1
     if "ano_ingresso" in df.columns:
         df["anos_no_programa"] = 2022 - df["ano_ingresso"] + 1
     else:
         df["anos_no_programa"] = 0
 
-    # Fill missing Pedra with "Desconhecido"
     for col in ("pedra_22", "pedra_21"):
         if col in df.columns:
             df[col] = df[col].fillna("Desconhecido")
         else:
             df[col] = "Desconhecido"
 
-    # Fill missing gender
     df["genero"] = df["genero"].fillna("Desconhecido")
 
-    # Fill subject grades with column median (few nulls)
+    # poucos nulos em notas, preenche com mediana
     for col in ("matem", "portug"):
         if col in df.columns:
             df[col] = df[col].fillna(df[col].median())
 
-    # Binary target: at risk = student not ahead of school grade
+    # target: risco = 1 quando aluno NÃO está adiantado (defas >= 0)
+    # importante: IAN foi excluído pois é discretização direta de defas (seria data leakage)
     if "defas" in df.columns:
         df[TARGET] = (df["defas"] >= 0).astype(int)
 
@@ -161,10 +150,8 @@ def build_preprocessor(
     ])
 
     transformers = []
-
     if numeric_features:
         transformers.append(("num", numeric_pipe, numeric_features))
-
     if categorical_features:
         transformers.append(("cat", categorical_pipe, categorical_features))
 
@@ -172,20 +159,15 @@ def build_preprocessor(
 
 
 def prepare_dataset() -> tuple[pd.DataFrame, pd.Series]:
-    """Full pipeline: load → clean → return X, y."""
     df_raw = load_raw_data()
     df = clean_data(df_raw)
 
     missing = [c for c in ALL_FEATURES if c not in df.columns]
     if missing:
-        logger.warning("Missing feature columns: %s", missing)
+        logger.warning("colunas ausentes: %s", missing)
 
     X = df[[c for c in ALL_FEATURES if c in df.columns]]
     y = df[TARGET]
 
-    logger.info(
-        "Dataset ready — shape: %s | target distribution: %s",
-        X.shape,
-        y.value_counts().to_dict(),
-    )
+    logger.info("dataset pronto — shape: %s | distribuição target: %s", X.shape, y.value_counts().to_dict())
     return X, y

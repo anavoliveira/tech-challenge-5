@@ -1,5 +1,3 @@
-"""API route definitions."""
-
 import sys
 from pathlib import Path
 
@@ -20,32 +18,32 @@ from src.utils import load_model, setup_logging
 logger = setup_logging("api.route")
 router = APIRouter()
 
-# Schema
-class StudentFeatures(BaseModel):
-    """Input features for a single student prediction.
 
-    Note: IAN (Indice de Adequacao ao Nivel) is intentionally excluded
-    because it is a direct discretization of the defasagem target and
-    would constitute data leakage.
+class StudentFeatures(BaseModel):
+    """
+    Dados de entrada de um aluno para predição.
+
+    Nota: IAN não é incluído pois é derivado diretamente de defas
+    (seria data leakage se usado como feature).
     """
 
-    fase: int = Field(..., ge=0, le=8, description="Fase atual no programa (0-8)")
-    idade: int = Field(..., ge=5, le=30, description="Idade do aluno")
-    ano_ingresso: int = Field(..., ge=2010, le=2024, description="Ano de ingresso no programa")
-    inde: float = Field(..., ge=0.0, le=10.0, description="Indice de Desenvolvimento Educacional")
-    iaa: float = Field(..., ge=0.0, le=10.0, description="Indice de Auto Avaliacao")
-    ieg: float = Field(..., ge=0.0, le=10.0, description="Indice de Engajamento")
-    ips: float = Field(..., ge=0.0, le=10.0, description="Indice Psicossocial")
-    ida: float = Field(..., ge=0.0, le=10.0, description="Indice de Desenvolvimento do Aprendizado")
-    ipv: float = Field(..., ge=0.0, le=10.0, description="Indice do Ponto de Virada")
-    cg: float = Field(..., ge=0.0, description="Conceito Geral")
-    cf: float = Field(..., ge=0.0, description="Conceito Final")
-    ct: float = Field(..., ge=0.0, description="Conceito Total")
-    matem: float = Field(..., ge=0.0, le=10.0, description="Nota de Matematica")
-    portug: float = Field(..., ge=0.0, le=10.0, description="Nota de Portugues")
-    pedra_22: str = Field("Ametista", description="Classificacao Pedra 2022 (Ametista/Agata/Quartzo/Topazio)")
-    pedra_21: Optional[str] = Field(None, description="Classificacao Pedra 2021 (opcional)")
-    genero: str = Field("Desconhecido", description="Genero (Menino / Menina)")
+    fase: int = Field(..., ge=0, le=8)
+    idade: int = Field(..., ge=5, le=30)
+    ano_ingresso: int = Field(..., ge=2010, le=2024)
+    inde: float = Field(..., ge=0.0, le=10.0)
+    iaa: float = Field(..., ge=0.0, le=10.0)
+    ieg: float = Field(..., ge=0.0, le=10.0)
+    ips: float = Field(..., ge=0.0, le=10.0)
+    ida: float = Field(..., ge=0.0, le=10.0)
+    ipv: float = Field(..., ge=0.0, le=10.0)
+    cg: float = Field(..., ge=0.0)
+    cf: float = Field(..., ge=0.0)
+    ct: float = Field(..., ge=0.0)
+    matem: float = Field(..., ge=0.0, le=10.0)
+    portug: float = Field(..., ge=0.0, le=10.0)
+    pedra_22: str = Field("Ametista")
+    pedra_21: Optional[str] = Field(None)
+    genero: str = Field("Desconhecido")
 
     class Config:
         json_schema_extra = {
@@ -72,13 +70,12 @@ class StudentFeatures(BaseModel):
 
 
 class PredictionResponse(BaseModel):
-    risco_defasagem: float = Field(..., description="Probabilidade de risco de defasagem (0-1)")
-    classificacao: str = Field(..., description="Baixo Risco / Medio Risco / Alto Risco")
-    confianca: float = Field(..., description="Confianca da predicao (0-1)")
-    modelo: str = Field(..., description="Nome do modelo utilizado")
+    risco_defasagem: float
+    classificacao: str
+    confianca: float
+    modelo: str
 
 
-# Helpers
 _pipeline = None
 _metadata: dict = {}
 
@@ -91,7 +88,7 @@ def _get_pipeline():
         except FileNotFoundError as exc:
             raise HTTPException(
                 status_code=503,
-                detail="Model not found. Run 'python src/train.py' first.",
+                detail="Modelo não encontrado. Execute 'python src/train.py' primeiro.",
             ) from exc
     return _pipeline, _metadata
 
@@ -109,6 +106,7 @@ def _features_from_input(data: StudentFeatures) -> pd.DataFrame:
         "fase": data.fase,
         "idade": data.idade,
         "ano_ingresso": data.ano_ingresso,
+        # anos_no_programa precisa ser calculado aqui pois clean_data não é chamado na API
         "anos_no_programa": 2022 - data.ano_ingresso + 1,
         "inde": data.inde,
         "iaa": data.iaa,
@@ -140,48 +138,37 @@ def _features_from_input(data: StudentFeatures) -> pd.DataFrame:
     return df[feature_cols]
 
 
- 
-# Routes
 @router.get("/health", tags=["Health"])
 def health_check():
-    """Liveness probe."""
     return {"status": "ok"}
 
 
- 
-# SageMaker routes
-# GET /ping        → health check 
-# POST /invocations → predictions
-
 @router.get("/ping", tags=["SageMaker"])
 def sagemaker_ping():
-    """SageMaker health check — must return 200."""
+    """SageMaker exige esse endpoint retornando 200."""
     return {"status": "ok"}
 
 
 @router.post("/invocations", response_model=PredictionResponse, tags=["SageMaker"])
 def sagemaker_invocations(student: StudentFeatures):
-    """SageMaker inference endpoint — mirrors /predict."""
     return predict(student)
 
 
 @router.get("/model-info", tags=["Model"])
 def model_info():
-    """Return metadata of the currently loaded model."""
     _, meta = _get_pipeline()
     return meta
 
 
 @router.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
 def predict(student: StudentFeatures):
-    """Predict defasagem risk for a single student."""
     pipeline, meta = _get_pipeline()
 
     try:
         X = _features_from_input(student)
         prob = float(pipeline.predict_proba(X)[0, 1])
     except Exception as exc:
-        logger.error("Prediction error: %s", exc)
+        logger.error("erro na predição: %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     response = PredictionResponse(
@@ -191,13 +178,6 @@ def predict(student: StudentFeatures):
         modelo=meta.get("model_name", "unknown"),
     )
 
-    logger.info(
-        "prediction event=%s timestamp=%s input=%s output=%s model=%s",
-        "prediction",
-        pd.Timestamp.utcnow().isoformat(),
-        student.model_dump(),
-        {"risco_defasagem": response.risco_defasagem, "classificacao": response.classificacao},
-        response.modelo,
-    )
+    logger.info("predição: aluno=%s risco=%.4f classe=%s", student.model_dump(), prob, response.classificacao)
 
     return response
