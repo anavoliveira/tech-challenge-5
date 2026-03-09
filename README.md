@@ -46,7 +46,7 @@ tech-challenge-5/
 │   └── deploy.yml              # CI/CD: build → push ECR → deploy SageMaker → release
 │
 ├── database/
-│   └── database.xlsx          # Dataset principal — 3 abas: PEDE2022 (860), PEDE2023 (1014), PEDE2024 (1156)
+│   └── base_2024.xlsx          # Dataset principal — 3 abas: PEDE2022 (860), PEDE2023 (1014), PEDE2024 (1156)
 │
 ├── infra/
 │   └── cloudformation.yml      # Stack AWS: S3 (DataCapture), IAM Roles, SageMaker Model/EndpointConfig/Endpoint, API Gateway
@@ -384,7 +384,7 @@ O notebook `notebooks/setup_model_monitor.ipynb` configura o **SageMaker Model M
 
 - API em produção: https://n8c8xksefj.execute-api.us-east-1.amazonaws.com/prod/predict
 - Documentação interativa (local): `http://localhost:8080/docs`
-- Dataset e Dicionário: `database/database.xlsx`
+- Dataset e Dicionário: `database/base_2024.xlsx`
 - Site Passos Mágicos: https://www.passosmagicos.org.br/
 
 ---

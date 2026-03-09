@@ -97,7 +97,7 @@ _GENERO_RAW_OPTIONS = ["Gênero", "Genero", "gênero", "genero"]
 
 
 def load_raw_data() -> pd.DataFrame:
-    path = get_database_path() / "database.xlsx"
+    path = get_database_path() / "base_2024.xlsx"
     xl = pd.ExcelFile(path)
     frames = []
     for year in (2022, 2023, 2024):
