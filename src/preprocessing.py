@@ -45,6 +45,7 @@ ALL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 TARGET = "risco"
 
 # mapeamento das colunas do excel para os nomes internos
+# usa os nomes canônicos da aba 2022; abas posteriores são normalizadas antes de chegar aqui
 _COLUMN_MAP = {
     "Fase": "fase",
     "Idade 22": "idade",
@@ -66,15 +67,60 @@ _COLUMN_MAP = {
     "Defas": "defas",
 }
 
+# Renomeações por ano para normalizar nomes de colunas específicos de cada aba
+# para os nomes canônicos esperados por _COLUMN_MAP (convenção da aba PEDE2022).
+# A aba 2022 já usa os nomes canônicos; 2023 e 2024 diferem em alguns campos.
+_SHEET_YEAR_RENAMES: dict[int, dict[str, str]] = {
+    2022: {},  # colunas já no formato canônico
+    2023: {
+        "Idade": "Idade 22",
+        "INDE 2023": "INDE 22",
+        "Mat": "Matem",
+        "Por": "Portug",
+        "Pedra 2023": "Pedra 22",  # pedra corrente do aluno em 2023
+        "Pedra 22": "Pedra 21",    # pedra do ano anterior (cheia de NaN → vira "Desconhecido")
+        "Defasagem": "Defas",
+    },
+    2024: {
+        "Idade": "Idade 22",
+        "INDE 2024": "INDE 22",
+        "Mat": "Matem",
+        "Por": "Portug",
+        "Pedra 2024": "Pedra 22",  # pedra corrente do aluno em 2024
+        "Pedra 23": "Pedra 21",    # pedra do ano anterior (cheia de NaN → vira "Desconhecido")
+        "Defasagem": "Defas",
+    },
+}
+
 # a coluna de gênero vem com encoding diferente dependendo da versão do excel
 _GENERO_RAW_OPTIONS = ["Gênero", "Genero", "gênero", "genero"]
 
 
 def load_raw_data() -> pd.DataFrame:
-    path = get_database_path() / "base_2024.xlsx"
-    df = pd.read_excel(path)
-    logger.info("carregou %s: %s linhas", path.name, df.shape[0])
-    return df
+    path = get_database_path() / "database.xlsx"
+    xl = pd.ExcelFile(path)
+    frames = []
+    for year in (2022, 2023, 2024):
+        sheet_name = f"PEDE{year}"
+        if sheet_name not in xl.sheet_names:
+            logger.warning("aba %s não encontrada em %s, ignorando", sheet_name, path.name)
+            continue
+        df = pd.read_excel(xl, sheet_name=sheet_name)
+        year_renames = _SHEET_YEAR_RENAMES.get(year, {})
+        if year_renames:
+            # remove colunas que já têm o nome canônico mas seriam substituídas pelo rename
+            # (evita colunas duplicadas após o rename)
+            canonical_targets = set(year_renames.values())
+            to_drop = [c for c in df.columns if c in canonical_targets and c not in year_renames]
+            if to_drop:
+                df = df.drop(columns=to_drop)
+            df = df.rename(columns=year_renames)
+        df["ano_ref"] = year
+        frames.append(df)
+        logger.info("carregou aba %s: %s linhas", sheet_name, df.shape[0])
+    result = pd.concat(frames, ignore_index=True)
+    logger.info("total combinado de %s abas: %s linhas", len(frames), result.shape[0])
+    return result
 
 
 def _resolve_genero_column(df: pd.DataFrame) -> pd.DataFrame:
@@ -97,9 +143,16 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.rename(columns=_COLUMN_MAP)
     df = _resolve_genero_column(df)
 
-    # anos no programa = ano atual (2022) - ingresso + 1
+    # coerce colunas numéricas para float (converte placeholders não-numéricos como "INCLUIR" em NaN)
+    for col in NUMERIC_FEATURES:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # anos no programa = ano de referência - ingresso + 1
+    # usa ano_ref por linha (quando vem de load_raw_data) ou 2022 como fallback
     if "ano_ingresso" in df.columns:
-        df["anos_no_programa"] = 2022 - df["ano_ingresso"] + 1
+        ano_base = df["ano_ref"] if "ano_ref" in df.columns else 2022
+        df["anos_no_programa"] = ano_base - df["ano_ingresso"] + 1
     else:
         df["anos_no_programa"] = 0
 
@@ -162,12 +215,17 @@ def prepare_dataset() -> tuple[pd.DataFrame, pd.Series]:
     df_raw = load_raw_data()
     df = clean_data(df_raw)
 
+    # descarta linhas sem target (ex: alunos de anos sem Defas preenchido)
+    if TARGET not in df.columns:
+        raise ValueError(f"Coluna target '{TARGET}' não encontrada. Verifique se 'Defas' existe nos dados.")
+    df = df.dropna(subset=[TARGET])
+
     missing = [c for c in ALL_FEATURES if c not in df.columns]
     if missing:
         logger.warning("colunas ausentes: %s", missing)
 
     X = df[[c for c in ALL_FEATURES if c in df.columns]]
-    y = df[TARGET]
+    y = df[TARGET].astype(int)
 
     logger.info("dataset pronto — shape: %s | distribuição target: %s", X.shape, y.value_counts().to_dict())
     return X, y

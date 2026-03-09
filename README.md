@@ -11,7 +11,7 @@ A [Associação Passos Mágicos](https://www.passosmagicos.org.br/) atua há 32 
 
 ### Problema de Negócio
 
-Com base em dados do desenvolvimento educacional do ano de **2022**, este projeto desenvolve um **modelo preditivo capaz de estimar o risco de defasagem escolar** de cada estudante — permitindo intervenções mais rápidas e direcionadas pela equipe da associação.
+Com base em dados do desenvolvimento educacional dos anos de **2022, 2023 e 2024** (3.030 alunos), este projeto desenvolve um **modelo preditivo capaz de estimar o risco de defasagem escolar** de cada estudante — permitindo intervenções mais rápidas e direcionadas pela equipe da associação.
 
 **Target:**
 - `risco = 1` → aluno **em risco** (não está adiantado na série — `Defas >= 0`)
@@ -31,7 +31,7 @@ Construção de uma **pipeline completa de Machine Learning**, cobrindo desde o 
 | Serialização | joblib |
 | Testes | pytest + pytest-cov |
 | Empacotamento | Docker + Amazon ECR |
-| Deploy | AWS SageMaker Serverless Inference |
+| Deploy | AWS SageMaker Real-Time Endpoint (ml.t2.medium) + API Gateway |
 | CI/CD | GitHub Actions |
 | Monitoramento | Logging estruturado (JSON) + Notebook de análise de drift |
 
@@ -46,11 +46,10 @@ tech-challenge-5/
 │   └── deploy.yml              # CI/CD: build → push ECR → deploy SageMaker → release
 │
 ├── database/
-│   ├── base_2024.xlsx          # Dataset principal (860 alunos, 2022)
-│   └── bases_antigas.zip       # Bases históricas
+│   └── database.xlsx          # Dataset principal — 3 abas: PEDE2022 (860), PEDE2023 (1014), PEDE2024 (1156)
 │
 ├── infra/
-│   └── cloudformation.yml      # Stack AWS: IAM Role, SageMaker Model, EndpointConfig, Endpoint
+│   └── cloudformation.yml      # Stack AWS: S3 (DataCapture), IAM Roles, SageMaker Model/EndpointConfig/Endpoint, API Gateway
 │
 ├── app/
 │   ├── main.py                 # Entrypoint FastAPI
@@ -72,7 +71,8 @@ tech-challenge-5/
 │
 ├── notebooks/
 │   ├── eda_e_treinamento.ipynb      # Análise exploratória e treinamento visual
-│   └── monitoramento_drift.ipynb   # Monitoramento de drift do modelo
+│   ├── monitoramento_drift.ipynb   # Monitoramento de drift do modelo
+│   └── setup_model_monitor.ipynb   # Configuração do SageMaker Model Monitor
 │
 ├── serve                       # Script de entrypoint exigido pelo SageMaker
 ├── Dockerfile
@@ -85,8 +85,10 @@ tech-challenge-5/
 
 ### 3.1 Pré-processamento dos Dados (`src/preprocessing.py`)
 
-- Renomeação e padronização das colunas do Excel
-- Cálculo de `anos_no_programa = 2022 - ano_ingresso + 1`
+- Carregamento das 3 abas do Excel (`PEDE2022`, `PEDE2023`, `PEDE2024`) com normalização de nomes de colunas por ano
+- Renomeação e padronização das colunas para o formato canônico de 2022
+- Conversão de valores não-numéricos (ex: `"INCLUIR"`) para NaN via `pd.to_numeric`
+- Cálculo de `anos_no_programa = ano_ref - ano_ingresso + 1` (usa o ano da aba como referência)
 - Preenchimento de nulos: mediana para numéricas, "Desconhecido" para categóricas
 - Criação do target: `risco = 1` se `Defas >= 0`, `risco = 0` se `Defas < 0`
 - **Exclusão do IAN**: índice excluído por ser discretização direta de `Defas` (data leakage)
@@ -187,7 +189,11 @@ docker run -p 8080:8080 passos-magicos
 Todo push para `main` dispara o pipeline GitHub Actions:
 1. Build da imagem Docker (treina o modelo)
 2. Push para o Amazon ECR
-3. Deploy da stack CloudFormation (SageMaker Serverless Endpoint)
+3. Deploy da stack CloudFormation:
+   - S3 Bucket para DataCapture e baseline do Model Monitor
+   - IAM Roles (SageMaker + API Gateway)
+   - SageMaker Real-Time Endpoint (`ml.t3.medium`) com DataCapture habilitado (100%)
+   - API Gateway REST público em frente ao endpoint SageMaker
 4. Geração de release semântico
 
 Secrets necessários no GitHub:
@@ -207,6 +213,15 @@ pytest tests/ --cov=src --cov-report=term-missing
 ---
 
 ## 5. Exemplos de Chamadas à API
+
+### `GET /ping` — SageMaker health check
+
+```bash
+curl http://localhost:8080/ping
+```
+```json
+{"status": "ok"}
+```
 
 ### `GET /health` — Liveness probe
 
@@ -234,9 +249,9 @@ curl http://localhost:8080/model-info
 
 ### `POST /predict` — Predição de risco de defasagem
 
-**curl:**
+**curl (produção — AWS API Gateway):**
 ```bash
-curl -X POST http://localhost:8080/predict \
+curl -X POST https://n8c8xksefj.execute-api.us-east-1.amazonaws.com/prod/predict \
   -H "Content-Type: application/json" \
   -d '{
     "fase": 3,
@@ -257,6 +272,13 @@ curl -X POST http://localhost:8080/predict \
     "pedra_21": "Ametista",
     "genero": "Menino"
   }'
+```
+
+**curl (local):**
+```bash
+curl -X POST http://localhost:8080/predict \
+  -H "Content-Type: application/json" \
+  -d '{"fase": 3, "idade": 12, "ano_ingresso": 2018, "inde": 6.5, "iaa": 7.0, "ieg": 5.5, "ips": 6.0, "ida": 6.2, "ipv": 7.5, "cg": 300, "cf": 10, "ct": 8, "matem": 6.5, "portug": 6.8, "pedra_22": "Ametista", "pedra_21": "Ametista", "genero": "Menino"}'
 ```
 
 **Response:**
@@ -310,7 +332,10 @@ payload = {
     "pedra_22": "Ametista", "pedra_21": "Ametista", "genero": "Menino"
 }
 
-response = requests.post("http://localhost:8080/predict", json=payload)
+response = requests.post(
+    "https://n8c8xksefj.execute-api.us-east-1.amazonaws.com/prod/predict",
+    json=payload,
+)
 print(response.json())
 ```
 
@@ -346,13 +371,20 @@ O notebook `notebooks/monitoramento_drift.ipynb` implementa análise de drift co
 - Distribuição das predições ao longo do tempo
 - Alertas automáticos quando p-value < 0.05
 
+### SageMaker Model Monitor
+
+O notebook `notebooks/setup_model_monitor.ipynb` configura o **SageMaker Model Monitor** para monitoramento contínuo em produção:
+- Criação do baseline estatístico a partir dos dados de treino
+- DataCapture habilitado no endpoint (100% das requisições capturadas no S3)
+- Agendamento de jobs de monitoramento para detecção automática de desvios
+
 ---
 
 ## 7. Links
 
-- API em produção: endpoint AWS SageMaker (`passos-magicos-prod`)
-- Documentação interativa: `{endpoint}/docs` (localmente em `http://localhost:8080/docs`)
-- Dataset e Dicionário: `database/base_2024.xlsx`
+- API em produção: https://n8c8xksefj.execute-api.us-east-1.amazonaws.com/prod/predict
+- Documentação interativa (local): `http://localhost:8080/docs`
+- Dataset e Dicionário: `database/database.xlsx`
 - Site Passos Mágicos: https://www.passosmagicos.org.br/
 
 ---

@@ -84,7 +84,7 @@ Resources:
         - VariantName: AllTraffic
           ModelName: !GetAtt SageMakerModel.ModelName
           InitialInstanceCount: 1
-          InstanceType: ml.t3.medium
+          InstanceType: ml.t2.medium
           InitialVariantWeight: 1
       DataCaptureConfig:
         EnableCapture: true

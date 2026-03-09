@@ -216,8 +216,8 @@ class TestBuildPreprocessor:
 # Tests: prepare_dataset (integration, reads real file)
 class TestPrepareDataset:
     def test_prepare_dataset_returns_x_y(self):
-        """Integration test — requires database/base_2024.xlsx to exist."""
-        db_path = get_database_path() / "base_2024.xlsx"
+        """Integration test — requires database/database.xlsx to exist."""
+        db_path = get_database_path() / "database.xlsx"
         if not db_path.exists():
             pytest.skip("Database file not available")
         X, y = prepare_dataset()
@@ -225,7 +225,7 @@ class TestPrepareDataset:
         assert len(y) == len(X)
 
     def test_prepare_dataset_binary_target(self):
-        db_path = get_database_path() / "base_2024.xlsx"
+        db_path = get_database_path() / "database.xlsx"
         if not db_path.exists():
             pytest.skip("Database file not available")
         X, y = prepare_dataset()
@@ -320,7 +320,7 @@ class TestEdgeCases:
         # Inject a fake feature that doesn't exist in the data
         monkeypatch.setattr("src.preprocessing.ALL_FEATURES", original_all + ["__fake__"])
 
-        db_path = get_database_path() / "base_2024.xlsx"
+        db_path = get_database_path() / "database.xlsx"
         if not db_path.exists():
             pytest.skip("Database file not available")
 
