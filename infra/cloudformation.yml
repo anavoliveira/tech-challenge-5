@@ -18,8 +18,14 @@ Parameters:
       - prod
     Description: Ambiente de deploy
 
-Resources:  
-  # 1. IAM Role
+Resources:
+  # 1. S3 Bucket para monitoramento (DataCapture + baseline do Model Monitor)
+  MonitoringBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub passos-magicos-monitoring-${AWS::AccountId}-${Environment}
+
+  # 2. IAM Role
   SageMakerExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -45,16 +51,31 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*
-  # 2. SageMaker Model
+        - PolicyName: SageMakerMonitoringS3
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt MonitoringBucket.Arn
+                  - !Sub ${MonitoringBucket.Arn}/*
+
+  # 3. SageMaker Model
   SageMakerModel:
     Type: AWS::SageMaker::Model
     Properties:
-      # ModelName: !Sub "passos-magicos"
       ModelName: !Sub "passos-magicos-${Environment}-${GitHubSha}"
       PrimaryContainer:
         Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/passos-magicos:${ImageTag}
       ExecutionRoleArn: !GetAtt SageMakerExecutionRole.Arn
-  # 3. SageMaker EndpointConfig
+
+  # 4. SageMaker EndpointConfig
+  # mudado de serverless para real-time (ml.t3.medium) pois o Model Monitor não suporta serverless
   SageMakerEndpointConfig:
     Type: AWS::SageMaker::EndpointConfig
     Properties:
@@ -62,16 +83,25 @@ Resources:
       ProductionVariants:
         - VariantName: AllTraffic
           ModelName: !GetAtt SageMakerModel.ModelName
-          ServerlessConfig:
-            MemorySizeInMB: 2048
-            MaxConcurrency: 10
-  # 4. SageMaker Endpoint 
+          InitialInstanceCount: 1
+          InstanceType: ml.t3.medium
+          InitialVariantWeight: 1
+      DataCaptureConfig:
+        EnableCapture: true
+        InitialSamplingPercentage: 100
+        DestinationS3Uri: !Sub s3://${MonitoringBucket}/data-capture
+        CaptureOptions:
+          - CaptureMode: Input
+          - CaptureMode: Output
+
+  # 5. SageMaker Endpoint
   SageMakerEndpoint:
     Type: AWS::SageMaker::Endpoint
     Properties:
       EndpointName: !Sub passos-magicos-${Environment}
       EndpointConfigName: !GetAtt SageMakerEndpointConfig.EndpointConfigName
-  # 5. IAM Role — API Gateway → SageMaker
+
+  # 6. IAM Role — API Gateway → SageMaker
   ApiGatewayRole:
     Type: AWS::IAM::Role
     Properties:
@@ -91,7 +121,8 @@ Resources:
               - Effect: Allow
                 Action: sagemaker:InvokeEndpoint
                 Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/passos-magicos-${Environment}
-  # 6. API Gateway REST API
+
+  # 7. API Gateway REST API
   RestApi:
     Type: AWS::ApiGateway::RestApi
     Properties:
@@ -101,7 +132,6 @@ Resources:
         Types:
           - REGIONAL
 
-  # Recurso /predict
   PredictResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -109,7 +139,6 @@ Resources:
       ParentId: !GetAtt RestApi.RootResourceId
       PathPart: predict
 
-  # Recurso /health
   HealthResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -117,7 +146,6 @@ Resources:
       ParentId: !GetAtt RestApi.RootResourceId
       PathPart: health
 
-  # 7. Método POST /predict → SageMaker (integração direta, sem Lambda)
   PredictMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -142,7 +170,6 @@ Resources:
           ResponseModels:
             application/json: Empty
 
-  # 8. Método GET /health → resposta estática (mock)
   HealthMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -163,7 +190,6 @@ Resources:
           ResponseModels:
             application/json: Empty
 
-  # 9. Deploy e Stage do API Gateway
   ApiDeployment:
     Type: AWS::ApiGateway::Deployment
     DependsOn:
@@ -179,7 +205,6 @@ Resources:
       DeploymentId: !Ref ApiDeployment
       StageName: !Ref Environment
 
-# Outputs
 Outputs:
   SageMakerExecutionRoleArn:
     Description: ARN da role do SageMaker
@@ -192,6 +217,12 @@ Outputs:
     Value: !GetAtt SageMakerEndpoint.EndpointName
     Export:
       Name: !Sub ${AWS::StackName}-SageMakerEndpointName
+
+  MonitoringBucketName:
+    Description: Bucket S3 usado pelo Model Monitor
+    Value: !Ref MonitoringBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-MonitoringBucketName
 
   ECRImageUri:
     Description: URI da imagem utilizada neste deploy
